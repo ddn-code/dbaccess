@@ -1,6 +1,7 @@
 <?php
 namespace ddn\api\db;
 use ddn\api\Helpers;
+use ddn\api\Debug;
 
 if (defined('__DB_API_DB__')) return;
 define('__DB_API_DB__', true);
@@ -198,6 +199,8 @@ class DB {
         return $this->p_query($query_str, $types_a, $values_a);
     }
 
+    private $_in_transaction = false;
+
     /**
      * Begins a transaction so that a series of queries can be executed (or canceled)
      *  (*) the connection is set in autocommit mode
@@ -208,6 +211,12 @@ class DB {
         
         $result = false;
         if ($this->is_connected()) {
+            if ($this->_in_transaction) {
+                self::debug("Already in transaction");
+                return false;
+            }
+
+            $this->_in_transaction = true;
             $result = $this->conn->begin_transaction(MYSQLI_TRANS_START_READ_WRITE);
             if ($result)
                 $this->conn->autocommit(false);
@@ -225,8 +234,15 @@ class DB {
         self::debug("Abort transaction");
 
         $result = false;
-        if ($this->is_connected())
+        if ($this->is_connected()) {
+            if (!$this->_in_transaction) {
+                self::debug("Not in transaction");
+                return false;
+            }
             $result = $this->conn->rollback();
+            if ($result)
+                $this->_in_transaction = false;
+        }
 
         $this->conn->autocommit(true);
         return $result;
@@ -241,11 +257,26 @@ class DB {
         self::debug("End transaction");
 
         $result = false;
-        if ($this->is_connected())
+        if ($this->is_connected()) {
+            if (!$this->_in_transaction) {
+                self::debug("Not in transaction");
+                return false;
+            }    
             $result = $this->conn->commit();
+            if ($result)
+                $this->_in_transaction = false;
+        }
 
         $this->conn->autocommit(true);
         return $result;
+    }
+
+    /**
+     * Function that retrieves whether or not a transaction has started
+     * @return boolean: true if a transaction has started, false otherwise
+     */
+    public function in_transaction() {
+        return $this->_in_transaction;
     }
 
     /**
@@ -282,7 +313,7 @@ class DB {
     private static function debug(...$args) {
         if (__DEBUG_DB_QUERIES) {
             foreach ($args as $arg)
-                Helpers::p_debug_h($arg);
+                Debug::p_debug_h($arg);
         }
     }
 
